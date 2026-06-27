@@ -1,0 +1,1579 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ESP32 OLED Video Animation Converter</title>
+    <meta property="og:title" content="ESP32 OLED Video Animation Converter | By Weblow">
+    <meta property="og:description" content="Convert any video into a 1-bit animation for 128x64 OLED displays with ESP32. Includes advanced dithering, panning, and a Wokwi simulator.">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="ESP32 OLED Video Animation Converter">
+    <meta name="twitter:description" content="Convert any video into a 1-bit animation for 128x64 OLED displays with ESP32.">
+    <style>
+        :root {
+            /* Core neutrals */
+            --paper: #ffffff;
+            --canvas: #fafafa;
+            --line: #e7e5e2;
+            --line-strong: #d8d5d1;
+            --ink: #14140f;
+            --ink-soft: #45443d;
+            --ink-muted: #84817a;
+            --ink-faint: #b4b1a9;
+
+            /* Single working accent — amber/phosphor, nodding to the OLED subject */
+            --signal: #b45309;
+            --signal-soft: #fef3e8;
+            --signal-line: #f0d9b8;
+
+            /* Status */
+            --good: #2f6b3f;
+            --good-soft: #eef6ef;
+
+            /* Geometry */
+            --r-lg: 16px;
+            --r-md: 12px;
+            --r-sm: 8px;
+            --r-pill: 999px;
+
+            --shadow-card: 0 1px 2px rgba(20, 20, 15, 0.04), 0 8px 24px rgba(20, 20, 15, 0.04);
+            --shadow-pop: 0 2px 8px rgba(20, 20, 15, 0.08), 0 16px 40px rgba(20, 20, 15, 0.08);
+
+            --mono: "SF Mono", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+            --sans: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        }
+
+        * { box-sizing: border-box; }
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            margin: 0;
+            color: var(--ink);
+            font-family: var(--sans);
+            background: var(--paper);
+            -webkit-font-smoothing: antialiased;
+            min-height: 100vh;
+        }
+
+        a { color: var(--signal); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        button, input, select, textarea { font: inherit; }
+        button { appearance: none; }
+
+        :focus-visible {
+            outline: 2px solid var(--signal);
+            outline-offset: 2px;
+            border-radius: var(--r-sm);
+        }
+
+        /* ---------- Shell & top bar ---------- */
+
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 14px 28px;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--line);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            letter-spacing: -0.01em;
+        }
+
+        .brand-mark {
+            width: 26px;
+            height: 26px;
+            border-radius: 7px;
+            background: var(--ink);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 2px;
+            padding: 5px;
+            flex-shrink: 0;
+        }
+
+        .brand-mark span { background: var(--signal); border-radius: 1px; }
+        .brand-mark span:nth-child(2), .brand-mark span:nth-child(3) { background: #fcd9a8; }
+
+        .topbar-meta {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--ink-muted);
+            font-size: 0.82rem;
+        }
+
+        .app-shell {
+            width: min(1320px, calc(100% - 56px));
+            margin: 0 auto;
+            padding: 0 0 64px;
+        }
+
+        /* ---------- Hero ---------- */
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.9fr);
+            gap: 40px;
+            align-items: center;
+            padding: 56px 0 44px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: var(--r-pill);
+            border: 1px solid var(--signal-line);
+            background: var(--signal-soft);
+            color: var(--signal);
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 18px;
+        }
+
+        .eyebrow::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--signal);
+        }
+
+        .hero h1 {
+            margin: 0;
+            font-size: clamp(2.1rem, 3.4vw, 3.4rem);
+            line-height: 1.05;
+            letter-spacing: -0.03em;
+            font-weight: 700;
+            max-width: 18ch;
+        }
+
+        .hero p {
+            margin: 16px 0 0;
+            max-width: 56ch;
+            color: var(--ink-soft);
+            font-size: 1.04rem;
+            line-height: 1.65;
+        }
+
+        .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 22px;
+        }
+
+        .chip {
+            padding: 7px 12px;
+            border-radius: var(--r-pill);
+            border: 1px solid var(--line-strong);
+            background: var(--paper);
+            color: var(--ink-soft);
+            font-size: 0.8rem;
+            font-weight: 600;
+            font-family: var(--mono);
+        }
+
+        .hero-aside {
+            display: grid;
+            gap: 12px;
+        }
+
+        .stat-card {
+            padding: 18px 20px;
+            border: 1px solid var(--line);
+            border-radius: var(--r-lg);
+            background: var(--canvas);
+        }
+
+        .stat-card strong {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 0.85rem;
+            color: var(--ink);
+            font-weight: 700;
+        }
+
+        .stat-card strong::before {
+            content: "";
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+            background: var(--signal);
+            flex-shrink: 0;
+        }
+
+        .stat-card:nth-child(2) strong::before { background: var(--ink); }
+
+        .stat-card span {
+            color: var(--ink-muted);
+            font-size: 0.88rem;
+            line-height: 1.55;
+        }
+
+        /* ---------- Section heading w/ step numbers ---------- */
+
+        .step-label {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            height: 26px;
+            border-radius: 8px;
+            background: var(--ink);
+            color: #fff;
+            font-family: var(--mono);
+            font-size: 0.78rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        /* ---------- Generic panel ---------- */
+
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: var(--r-lg);
+            background: var(--paper);
+            box-shadow: var(--shadow-card);
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 24px 26px 0;
+        }
+
+        .panel-header-title {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .panel-header h2 {
+            margin: 1px 0 0;
+            font-size: 1.08rem;
+            letter-spacing: -0.01em;
+            color: var(--ink);
+            font-weight: 700;
+        }
+
+        .panel-header p {
+            margin: 5px 0 0;
+            color: var(--ink-muted);
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .panel-badge {
+            flex-shrink: 0;
+            padding: 6px 11px;
+            border-radius: var(--r-pill);
+            border: 1px solid var(--line-strong);
+            background: var(--canvas);
+            color: var(--ink-soft);
+            font-size: 0.75rem;
+            font-weight: 700;
+            font-family: var(--mono);
+            white-space: nowrap;
+        }
+
+        .panel-body { padding: 22px 26px 26px; }
+
+        /* ---------- Workspace layout ---------- */
+
+        .workspace {
+            display: grid;
+            gap: 22px;
+            grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+            align-items: start;
+            margin-top: 36px;
+        }
+
+        .control-stack { display: grid; gap: 16px; }
+
+        .control-card {
+            padding: 20px;
+            border: 1px solid var(--line);
+            border-radius: var(--r-md);
+            background: var(--canvas);
+        }
+
+        .control-card h3 {
+            margin: 0 0 4px;
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: var(--ink);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .control-card h3::before {
+            content: "";
+            width: 4px;
+            height: 14px;
+            border-radius: 2px;
+            background: var(--signal);
+        }
+
+        .control-card .hint {
+            margin: 0 0 18px;
+            color: var(--ink-muted);
+            font-size: 0.86rem;
+            line-height: 1.5;
+            padding-left: 12px;
+        }
+
+        .control-group { margin-bottom: 16px; }
+        .control-group:last-child { margin-bottom: 0; }
+
+        .control-group label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+            color: var(--ink);
+            font-size: 0.86rem;
+            font-weight: 600;
+        }
+
+        .control-group label span { min-width: 0; }
+
+        .control-group .subtle {
+            color: var(--ink-muted);
+            font-size: 0.8rem;
+            font-weight: 600;
+            font-family: var(--mono);
+        }
+
+        /* ---------- Form elements ---------- */
+
+        input[type="file"], select, input[type="number"], textarea {
+            width: 100%;
+            color: var(--ink);
+            background: var(--paper);
+            border: 1px solid var(--line-strong);
+            border-radius: var(--r-sm);
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        input[type="file"]:hover, select:hover, input[type="number"]:hover {
+            border-color: var(--ink-faint);
+        }
+
+        input[type="file"]:focus, select:focus, input[type="number"]:focus, textarea:focus {
+            border-color: var(--signal);
+            box-shadow: 0 0 0 3px var(--signal-soft);
+            outline: none;
+        }
+
+        input[type="file"] {
+            padding: 11px 13px;
+            font-size: 0.88rem;
+            color: var(--ink-soft);
+        }
+
+        input[type="file"]::file-selector-button {
+            padding: 7px 12px;
+            margin-right: 12px;
+            border: 1px solid var(--line-strong);
+            border-radius: 7px;
+            background: var(--paper);
+            color: var(--ink);
+            font-weight: 600;
+            font-size: 0.83rem;
+            cursor: pointer;
+        }
+
+        select {
+            padding: 11px 13px;
+            cursor: pointer;
+            font-size: 0.92rem;
+            appearance: none;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2345443d' stroke-width='2'><path d='M6 9l6 6 6-6'/></svg>");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 36px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 5px;
+            border-radius: 3px;
+            accent-color: var(--signal);
+            cursor: pointer;
+            background: var(--line-strong);
+        }
+
+        input[type="number"] {
+            width: 84px;
+            padding: 9px 10px;
+            text-align: center;
+            font-family: var(--mono);
+            font-size: 0.86rem;
+        }
+
+        textarea {
+            min-height: 220px;
+            padding: 16px;
+            resize: vertical;
+            line-height: 1.6;
+            font-family: var(--mono);
+            font-size: 0.84rem;
+            color: var(--ink);
+            border-radius: var(--r-md);
+            background: var(--canvas);
+        }
+
+        textarea::placeholder { color: var(--ink-faint); }
+
+        .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .row > * { flex: 1 1 auto; }
+        .stack { display: grid; gap: 10px; }
+
+        /* ---------- Buttons ---------- */
+
+        .action-btn {
+            width: 100%;
+            border: 0;
+            border-radius: var(--r-sm);
+            padding: 13px 16px;
+            cursor: pointer;
+            color: #fff;
+            background: var(--ink);
+            font-weight: 700;
+            font-size: 0.92rem;
+            letter-spacing: -0.01em;
+            transition: transform 0.14s ease, opacity 0.14s ease, background 0.14s ease;
+        }
+
+        .action-btn:hover { background: #2a2a22; transform: translateY(-1px); }
+        .action-btn:active { transform: translateY(0); }
+
+        .action-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.38;
+            transform: none;
+        }
+
+        .action-btn.secondary {
+            color: var(--ink);
+            background: var(--paper);
+            border: 1px solid var(--line-strong);
+        }
+
+        .action-btn.secondary:hover { border-color: var(--ink); background: var(--canvas); }
+
+        .action-btn.success {
+            color: #fff;
+            background: var(--good);
+        }
+
+        .action-btn.success:hover { background: #265533; }
+
+        .action-btn.primary-signal {
+            background: var(--signal);
+        }
+
+        .action-btn.primary-signal:hover { background: #9a4607; }
+
+        .mini-btn {
+            width: 38px;
+            height: 38px;
+            border: 1px solid var(--line-strong);
+            border-radius: var(--r-sm);
+            background: var(--paper);
+            color: var(--ink);
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+        }
+
+        .mini-btn:hover { border-color: var(--ink); background: var(--canvas); }
+
+        .reset-btn {
+            width: 30px;
+            height: 30px;
+            border: 1px solid transparent;
+            border-radius: var(--r-pill);
+            background: transparent;
+            color: var(--ink-muted);
+            cursor: pointer;
+            flex: 0 0 auto;
+            font-size: 0.95rem;
+            transition: color 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+        }
+
+        .reset-btn:hover {
+            color: var(--signal);
+            background: var(--signal-soft);
+            border-color: var(--signal-line);
+        }
+
+        /* ---------- Custom controls drawer ---------- */
+
+        .custom-panel {
+            display: none;
+            padding: 16px;
+            margin-top: 16px;
+            border: 1px dashed var(--line-strong);
+            border-radius: var(--r-md);
+            background: var(--paper);
+        }
+
+        #customTitle {
+            margin: 0 0 14px 0;
+            color: var(--signal);
+            font-size: 0.74rem;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            font-family: var(--mono);
+        }
+
+        /* ---------- Checkbox row ---------- */
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 13px 16px;
+            border-radius: var(--r-sm);
+            border: 1px solid var(--line-strong);
+            background: var(--paper);
+        }
+
+        .checkbox-group .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--ink);
+            font-weight: 600;
+            font-size: 0.88rem;
+        }
+
+        .checkbox-group input {
+            width: 17px;
+            height: 17px;
+            accent-color: var(--signal);
+            cursor: pointer;
+        }
+
+        /* ---------- Preview ---------- */
+
+        .preview-shell { display: grid; gap: 16px; padding: 22px 26px 26px; }
+
+        .canvas-panel {
+            display: grid;
+            gap: 14px;
+            padding: 20px;
+            border-radius: var(--r-md);
+            border: 1px solid var(--line);
+            background: var(--canvas);
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            height: auto;
+            image-rendering: pixelated;
+            border-radius: var(--r-sm);
+            background: #000;
+            border: 1px solid var(--line-strong);
+            box-shadow: var(--shadow-card);
+        }
+
+        video {
+            display: block;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            max-height: 340px;
+            border-radius: var(--r-md);
+            border: 1px solid var(--line);
+            background: #000;
+        }
+
+        .status-card {
+            display: grid;
+            gap: 14px;
+            padding: 18px 20px;
+            border-radius: var(--r-md);
+            border: 1px solid var(--line);
+            background: var(--canvas);
+        }
+
+        .status-top {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .status {
+            margin: 0;
+            font-weight: 700;
+            color: var(--ink);
+            font-size: 0.92rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status::before {
+            content: "";
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--signal);
+            flex-shrink: 0;
+        }
+
+        .live-tag {
+            color: var(--good);
+            border: 1px solid #cfe6d4;
+            background: var(--good-soft);
+        }
+
+        .stat-grid {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .metric {
+            padding: 13px 15px;
+            border-radius: var(--r-sm);
+            border: 1px solid var(--line);
+            background: var(--paper);
+        }
+
+        .metric span {
+            display: block;
+            color: var(--ink-muted);
+            font-size: 0.78rem;
+            margin-bottom: 7px;
+            font-weight: 600;
+        }
+
+        .metric strong {
+            font-size: 1.05rem;
+            color: var(--ink);
+            font-family: var(--mono);
+        }
+
+        /* ---------- Output grid ---------- */
+
+        .output-grid {
+            display: grid;
+            gap: 22px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-top: 22px;
+        }
+
+        .help-text {
+            margin: 0;
+            color: var(--ink-muted);
+            line-height: 1.6;
+            font-size: 0.9rem;
+        }
+
+        .help-text strong { color: var(--ink); font-family: var(--mono); font-weight: 700; }
+
+        .support-panel .panel-body { display: grid; gap: 16px; }
+
+        .embed-wrap {
+            overflow: hidden;
+            border-radius: var(--r-md);
+            border: 1px solid var(--line);
+            background: var(--canvas);
+        }
+
+        iframe { display: block; width: 100%; min-height: 540px; border: 0; }
+
+        .footer-credit {
+            margin-top: 40px;
+            padding: 28px 0 0;
+            text-align: center;
+            color: var(--ink-muted);
+            font-size: 0.88rem;
+            border-top: 1px solid var(--line);
+        }
+
+        .footer-credit a {
+            color: var(--ink);
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        .footer-credit a:hover { color: var(--signal); }
+
+        .visually-hidden {
+            position: absolute;
+            width: 1px; height: 1px;
+            margin: -1px; border: 0; padding: 0;
+            clip: rect(0 0 0 0);
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 1100px) {
+            .hero, .workspace, .output-grid {
+                grid-template-columns: 1fr;
+            }
+            .hero { padding: 40px 0 32px; }
+        }
+
+        @media (max-width: 720px) {
+            .topbar { padding: 12px 18px; }
+            .app-shell { width: min(100% - 28px, 100%); padding: 0 0 48px; }
+            .hero { padding: 32px 0 26px; }
+            .hero h1 { max-width: none; }
+            .panel-body, .preview-shell { padding: 18px; }
+            .panel-header { padding: 18px 18px 0; flex-direction: column; }
+            .panel-header-title { gap: 10px; }
+            .stat-grid { grid-template-columns: 1fr; }
+            .row { flex-direction: column; align-items: stretch; }
+            input[type="number"] { width: 100%; }
+            .checkbox-group { flex-direction: column; align-items: stretch; }
+            iframe { min-height: 380px; }
+            .workspace { margin-top: 28px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div class="brand">
+            <span class="brand-mark"><span></span><span></span><span></span><span></span></span>
+            ESP32 OLED Converter
+        </div>
+        <div class="topbar-meta">128 × 64 · 1-bit · Wokwi ready</div>
+    </div>
+
+    <div class="app-shell">
+        <header class="hero">
+            <div>
+                <div class="eyebrow">Video → Frame Buffer</div>
+                <h1>Turn video into a clean 1-bit OLED animation.</h1>
+                <p>
+                    Upload a video, tune dithering and scaling, then extract frame data into a C++ array ready for
+                    an ESP32 OLED 128×64 project. The layout is designed to feel clean, responsive, and easy to use.
+                </p>
+                <div class="chip-row">
+                    <span class="chip">Bayer 8×8</span>
+                    <span class="chip">Floyd–Steinberg</span>
+                    <span class="chip">Atkinson</span>
+                    <span class="chip">Auto-save settings</span>
+                </div>
+            </div>
+
+            <div class="hero-aside">
+                <div class="stat-card">
+                    <strong>Quick start</strong>
+                    <span>Upload a video, choose a scale mode, preview the result, then click extract to generate the array.</span>
+                </div>
+                <div class="stat-card">
+                    <strong>Friendly on mobile</strong>
+                    <span>Controls are grouped into cards so the interface stays comfortable on phones and tablets.</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="workspace">
+            <section class="panel">
+                <div class="panel-header">
+                    <div class="panel-header-title">
+                        <span class="step-label">1</span>
+                        <div>
+                            <h2>Input &amp; Settings</h2>
+                            <p>Choose a video and adjust the conversion quality to match the footage you are working with.</p>
+                        </div>
+                    </div>
+                    <div class="panel-badge">Control stack</div>
+                </div>
+
+                <div class="panel-body">
+                    <div class="control-stack">
+                        <div class="control-card">
+                            <h3>Video Source</h3>
+                            <p class="hint">Upload your video, then rotate it 90° if it is vertical.</p>
+                            <div class="stack">
+                                <input type="file" id="upload" accept="video/*">
+                                <button id="rotateBtn" class="action-btn secondary" type="button">↻ Rotate Video 90°</button>
+                            </div>
+                        </div>
+
+                        <div class="control-card">
+                            <h3>Conversion Mode</h3>
+                            <p class="hint">Choose the color conversion method and how the video fits the OLED canvas.</p>
+
+                            <div class="control-group main-control">
+                                <label for="ditherMode">
+                                    <span>Color Conversion Method</span>
+                                </label>
+                                <select id="ditherMode">
+                                    <option value="threshold">Solid Threshold (Hard Black / White)</option>
+                                    <option value="bayer" selected>Bayer 8x8 Dithering (Smooth, Image2cpp style)</option>
+                                    <option value="floyd">Floyd-Steinberg (Good for detailed frames)</option>
+                                    <option value="atkinson">Atkinson Dithering (Reduces heavy black shadows)</option>
+                                </select>
+                            </div>
+
+                            <div class="control-group main-control">
+                                <label for="scaleMode">
+                                    <span>Screen Scale Mode</span>
+                                </label>
+                                <select id="scaleMode">
+                                    <option value="fit">Best Fit (Preserve aspect ratio)</option>
+                                    <option value="cover">Fill / Cover (Crop to fill)</option>
+                                    <option value="stretch">Stretch (Force 128x64)</option>
+                                    <option value="custom">Custom (Manual size control)</option>
+                                </select>
+                            </div>
+
+                            <div id="customControls" class="custom-panel">
+                                <p id="customTitle">CUSTOM CONTROLS:</p>
+                                <div class="control-group" id="grpW">
+                                    <label for="customW"><span>Width (W)</span><span class="subtle"><span id="cwVal">128</span></span></label>
+                                    <input type="range" id="customW" min="10" max="256" value="128">
+                                </div>
+                                <div class="control-group" id="grpH">
+                                    <label for="customH"><span>Height (H)</span><span class="subtle"><span id="chVal">64</span></span></label>
+                                    <input type="range" id="customH" min="10" max="128" value="64">
+                                </div>
+                                <div class="control-group">
+                                    <label for="customX">
+                                        <span>X Offset</span>
+                                        <span class="subtle"><span id="cxVal">0</span></span>
+                                    </label>
+                                    <div class="row">
+                                        <input type="range" id="customX" min="-128" max="128" value="0">
+                                        <button class="reset-btn" id="resetX" type="button" title="Reset X Offset">↺</button>
+                                    </div>
+                                </div>
+                                <div class="control-group">
+                                    <label for="customY">
+                                        <span>Y Offset</span>
+                                        <span class="subtle"><span id="cyVal">0</span></span>
+                                    </label>
+                                    <div class="row">
+                                        <input type="range" id="customY" min="-64" max="64" value="0">
+                                        <button class="reset-btn" id="resetY" type="button" title="Reset Y Offset">↺</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="control-group main-control">
+                                <label for="fps">
+                                    <span>Target FPS</span>
+                                    <span class="subtle"><span id="fpsVal">10</span></span>
+                                </label>
+                                <div class="row">
+                                    <input type="range" id="fps" min="1" max="30" value="10">
+                                    <button class="reset-btn" id="resetFps" type="button" title="Reset FPS to 10">↺</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="control-card">
+                            <h3>Image Tuning</h3>
+                            <p class="hint">These settings help sharpen text, thin lines, and dark or bright details.</p>
+
+                            <div class="control-group tuning-control">
+                                <label for="thickness">
+                                    <span>Text / Line Thickness</span>
+                                    <span class="subtle" id="thickVal">Normal</span>
+                                </label>
+                                <div class="row">
+                                    <input type="range" id="thickness" min="-3" max="3" value="0" step="0.1">
+                                    <input type="number" id="thickNum" min="-3" max="3" value="0" step="0.1">
+                                    <button class="reset-btn" id="resetThick" type="button" title="Reset Thickness">↺</button>
+                                </div>
+                                <p class="help-text" style="margin-top: 8px; font-size: 0.8rem;">Negative values thicken black shapes, positive values thicken white shapes.</p>
+                            </div>
+
+                            <div class="control-group tuning-control">
+                                <label for="threshold">
+                                    <span>B/W / Dither Bias</span>
+                                    <span class="subtle"><span id="threshVal">128</span></span>
+                                </label>
+                                <div class="row">
+                                    <input type="range" id="threshold" min="0" max="255" value="128">
+                                    <button class="reset-btn" id="resetThresh" type="button" title="Reset threshold to 128">↺</button>
+                                </div>
+                            </div>
+
+                            <div class="control-group tuning-control">
+                                <label for="contrast">
+                                    <span>Contrast</span>
+                                    <span class="subtle"><span id="contrastVal">100%</span></span>
+                                </label>
+                                <div class="row">
+                                    <input type="range" id="contrast" min="0" max="300" value="100">
+                                    <button class="reset-btn" id="resetContrast" type="button" title="Reset contrast to 100%">↺</button>
+                                </div>
+                            </div>
+
+                            <div class="control-group tuning-control">
+                                <label for="brightness">
+                                    <span>Brightness</span>
+                                    <span class="subtle"><span id="brightVal">100%</span></span>
+                                </label>
+                                <div class="row">
+                                    <input type="range" id="brightness" min="0" max="200" value="100">
+                                    <button class="reset-btn" id="resetBrightness" type="button" title="Reset brightness to 100%">↺</button>
+                                </div>
+                            </div>
+
+                            <div class="checkbox-group">
+                                <div class="checkbox-label">
+                                    <input type="checkbox" id="invert">
+                                    <label for="invert" style="margin: 0; cursor: pointer;">Invert Colors</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button id="convertBtn" class="action-btn primary-signal" type="button" disabled>Start Frame-by-Frame Extraction</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="panel-header">
+                    <div class="panel-header-title">
+                        <span class="step-label">2</span>
+                        <div>
+                            <h2>Live Preview</h2>
+                            <p>See the OLED 128×64 output live before you extract all frames.</p>
+                        </div>
+                    </div>
+                    <div class="panel-badge">OLED 128×64</div>
+                </div>
+
+                <div class="preview-shell">
+                    <video id="video" controls muted loop></video>
+
+                    <div class="canvas-panel">
+                        <canvas id="canvas" width="128" height="64"></canvas>
+                    </div>
+
+                    <div class="status-card">
+                        <div class="status-top">
+                            <p id="status" class="status">Status: Waiting for a video...</p>
+                            <span class="panel-badge live-tag">Live feedback</span>
+                        </div>
+                        <div class="stat-grid">
+                            <div class="metric">
+                                <span>Total frames extracted</span>
+                                <strong id="frameCount">0</strong>
+                            </div>
+                            <div class="metric">
+                                <span>Preview mode</span>
+                                <strong style="font-family: var(--sans); font-size: 0.92rem;">Responsive canvas</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <section class="output-grid">
+            <article class="panel">
+                <div class="panel-header">
+                    <div class="panel-header-title">
+                        <span class="step-label">3</span>
+                        <div>
+                            <h2>C++ Array Output</h2>
+                            <p>Generate <code>VideoFrame.h</code>, then paste it into Arduino IDE.</p>
+                        </div>
+                    </div>
+                    <div class="panel-badge">Ready to paste</div>
+                </div>
+                <div class="panel-body">
+                    <p class="help-text" style="margin-top: 0; margin-bottom: 14px;">Create a new file or tab in Arduino IDE named <strong>VideoFrame.h</strong>, then paste this code.</p>
+                    <button id="copyArrayBtn" class="action-btn success" type="button" style="margin: 0 0 14px;">📋 Copy Array Data</button>
+                    <textarea id="outputArray" readonly placeholder="Ready-to-copy C++ code will appear here..."></textarea>
+                </div>
+            </article>
+
+            <article class="panel">
+                <div class="panel-header">
+                    <div class="panel-header-title">
+                        <span class="step-label">4</span>
+                        <div>
+                            <h2>Main Code</h2>
+                            <p>Paste this into your main <code>.ino</code> file and choose the OLED type you use.</p>
+                        </div>
+                    </div>
+                    <div class="panel-badge">Main.ino</div>
+                </div>
+                <div class="panel-body">
+                    <p class="help-text" style="margin-top: 0; margin-bottom: 14px;">Do not forget to select the OLED type at the top of the code.</p>
+                    <button id="copyMainBtn" class="action-btn success" type="button" style="margin: 0 0 14px;">📋 Copy Main.ino</button>
+                    <textarea id="outputMain" readonly style="min-height: 350px;">
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include "VideoFrame.h" 
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+
+// ========================================================
+// Select the OLED type here (enable only one)
+// ========================================================
+#define USE_SSD1306
+//#define USE_SH1106
+// ========================================================
+
+// Automatic configuration based on the selected option
+#ifdef USE_SSD1306
+  #include &lt;Adafruit_SSD1306.h&gt;
+  Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+  #define DISPLAY_COLOR WHITE  // SSD1306 uses "WHITE"
+
+#elif defined(USE_SH1106)
+  #include &lt;Adafruit_SH110X.h&gt;
+  Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+  #define DISPLAY_COLOR SH110X_WHITE // SH110X uses "SH110X_WHITE"
+#endif
+
+unsigned long previousMillis = 0;
+int currentFrame = 0;
+
+void setup() {
+  Serial.begin(115200);
+
+  // Automatic initialization based on the selected chip
+  #ifdef USE_SSD1306
+    if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
+      Serial.println(F("SSD1306 OLED failed to connect."));
+      for(;;); 
+    }
+  #elif defined(USE_SH1106)
+    if(!display.begin(0x3C, true)) { // SH1106 uses a different begin format
+      Serial.println(F("SH1106 OLED failed to connect."));
+      for(;;); 
+    }
+  #endif
+
+  // Overclock I2C to 800 kHz for smoother video FPS
+  Wire.setClock(800000); 
+
+  display.clearDisplay();
+  display.display();
+}
+
+void loop() {
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousMillis >= FRAME_DELAY) {
+    
+    previousMillis = currentMillis;
+
+    display.clearDisplay();
+    
+    // DISPLAY_COLOR automatically matches the selected chip
+    display.drawBitmap(0, 0, video_frames[currentFrame], SCREEN_WIDTH, SCREEN_HEIGHT, DISPLAY_COLOR);
+    display.display();
+
+    currentFrame++;
+
+    if (currentFrame >= TOTAL_FRAMES) {
+      currentFrame = 0;
+    }
+  }
+}
+                    </textarea>
+                </div>
+            </article>
+        </section>
+
+        <section class="panel support-panel" style="margin-top: 22px;">
+            <div class="panel-header">
+                <div class="panel-header-title">
+                    <span class="step-label">5</span>
+                    <div>
+                        <h2>Live Simulator</h2>
+                        <p>Use the Wokwi simulator below if you want to test the result in your browser.</p>
+                    </div>
+                </div>
+                <div class="panel-badge">Wokwi</div>
+            </div>
+            <div class="panel-body">
+                <p class="help-text" style="margin-top: 0;">Paste your Main.ino code into the editor below, then press Play (▶) to preview it virtually.</p>
+                <div class="embed-wrap">
+                    <iframe
+                        src="https://wokwi.com/projects/460502579013039105"
+                        title="Wokwi simulator"
+                        loading="lazy">
+                    </iframe>
+                </div>
+            </div>
+        </section>
+
+        <footer class="footer-credit">
+            Developed by <b style="color: var(--ink);">Weblow</b> and <b style="color: var(--ink);">Cubic</b><br>
+            <a href="https://www.instagram.com/weblow.official" target="_blank" rel="noreferrer">Weblow -Instagram</a> ·
+            <a href="https://www.instagram.com/cubiec.in/" target="_blank" rel="noreferrer">Cubic -Instagram</a>
+        </footer>
+    </div>
+
+    <script>
+        // DOM elements
+        const upload = document.getElementById('upload');
+        const video = document.getElementById('video');
+        
+        // Main canvas
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        
+        // Offscreen canvas for preprocessing
+        const offscreen = document.createElement('canvas');
+        const offCtx = offscreen.getContext('2d', { willReadFrequently: true });
+        offCtx.imageSmoothingEnabled = true;
+        offCtx.imageSmoothingQuality = "high";
+        
+        const outputArray = document.getElementById('outputArray');
+        const outputMain = document.getElementById('outputMain');
+        const status = document.getElementById('status');
+        
+        const convertBtn = document.getElementById('convertBtn');
+        const copyArrayBtn = document.getElementById('copyArrayBtn');
+        const copyMainBtn = document.getElementById('copyMainBtn');
+        const rotateBtn = document.getElementById('rotateBtn');
+        const frameCountSpan = document.getElementById('frameCount');
+
+        // Settings elements
+        const ditherModeInput = document.getElementById('ditherMode');
+        const scaleModeInput = document.getElementById('scaleMode');
+        const customControls = document.getElementById('customControls');
+        const fpsInput = document.getElementById('fps');
+        
+        const thicknessInput = document.getElementById('thickness');
+        const thickNumInput = document.getElementById('thickNum');
+        
+        const thresholdInput = document.getElementById('threshold');
+        const contrastInput = document.getElementById('contrast');
+        const brightnessInput = document.getElementById('brightness');
+        const invertInput = document.getElementById('invert');
+        
+        const customW = document.getElementById('customW');
+        const customH = document.getElementById('customH');
+        const customX = document.getElementById('customX');
+        const customY = document.getElementById('customY');
+
+        let isConverting = false;
+        let animationFrameId = null;
+        let rotationAngle = 0;
+
+        // Bayer 8x8 matrix
+        const bayer8x8 = [
+            [ 0, 32,  8, 40,  2, 34, 10, 42],
+            [48, 16, 56, 24, 50, 18, 58, 26],
+            [12, 44,  4, 36, 14, 46,  6, 38],
+            [60, 28, 52, 20, 62, 30, 54, 22],
+            [ 3, 35, 11, 43,  1, 33,  9, 41],
+            [51, 19, 59, 27, 49, 17, 57, 25],
+            [15, 47,  7, 39, 13, 45,  5, 37],
+            [63, 31, 55, 23, 61, 29, 53, 21]
+        ];
+
+        // UI listeners
+        const bindLabel = (input, labelId, suffix = '') => {
+            input.addEventListener('input', () => {
+                document.getElementById(labelId).innerText = input.value + suffix;
+            });
+        };
+        
+        bindLabel(fpsInput, 'fpsVal');
+        bindLabel(thresholdInput, 'threshVal');
+        bindLabel(contrastInput, 'contrastVal', '%');
+        bindLabel(brightnessInput, 'brightVal', '%');
+        bindLabel(customW, 'cwVal');
+        bindLabel(customH, 'chVal');
+        bindLabel(customX, 'cxVal');
+        bindLabel(customY, 'cyVal');
+
+        const updateThickLabel = () => {
+            const val = parseFloat(thicknessInput.value);
+            let text = "Normal";
+            if(val < 0) text = `Hitam +${Math.abs(val)}`;
+            if(val > 0) text = `Putih +${val}`;
+            document.getElementById('thickVal').innerText = text;
+        };
+        thicknessInput.addEventListener('input', updateThickLabel);
+
+        thicknessInput.addEventListener('input', (e) => { thickNumInput.value = e.target.value; });
+        thickNumInput.addEventListener('input', (e) => {
+            let val = parseFloat(e.target.value);
+            if(val > 3) val = 3; if(val < -3) val = -3;
+            thicknessInput.value = val;
+        });
+
+        const updateCustomUI = () => {
+            const mode = scaleModeInput.value;
+            if (mode === 'custom') {
+                customControls.style.display = 'block';
+                document.getElementById('grpW').style.display = 'block';
+                document.getElementById('grpH').style.display = 'block';
+                document.getElementById('customTitle').innerText = "CUSTOM CONTROLS (W, H, X, Y):";
+            } else if (mode === 'cover') {
+                customControls.style.display = 'block';
+                document.getElementById('grpW').style.display = 'none';
+                document.getElementById('grpH').style.display = 'none';
+                document.getElementById('customTitle').innerText = "PANNING CONTROLS (X & Y):";
+            } else {
+                customControls.style.display = 'none';
+            }
+        };
+
+        // Auto-save
+        const saveSettings = () => {
+            const settings = {
+                ditherMode: ditherModeInput.value,
+                scaleMode: scaleModeInput.value,
+                fps: fpsInput.value,
+                thickness: thicknessInput.value,
+                threshold: thresholdInput.value,
+                contrast: contrastInput.value,
+                brightness: brightnessInput.value,
+                invert: invertInput.checked,
+                customW: customW.value, customH: customH.value, customX: customX.value, customY: customY.value
+            };
+            localStorage.setItem('oledVideoSettings', JSON.stringify(settings));
+        };
+
+        const loadSettings = () => {
+            const saved = localStorage.getItem('oledVideoSettings');
+            if (saved) {
+                const settings = JSON.parse(saved);
+                if(settings.ditherMode !== undefined) ditherModeInput.value = settings.ditherMode;
+                if(settings.scaleMode !== undefined) scaleModeInput.value = settings.scaleMode;
+                if(settings.fps !== undefined) { fpsInput.value = settings.fps; document.getElementById('fpsVal').innerText = settings.fps; }
+                if(settings.thickness !== undefined) { 
+                    thicknessInput.value = settings.thickness; 
+                    thickNumInput.value = settings.thickness; 
+                }
+                if(settings.threshold !== undefined) { thresholdInput.value = settings.threshold; document.getElementById('threshVal').innerText = settings.threshold; }
+                if(settings.contrast !== undefined) { contrastInput.value = settings.contrast; document.getElementById('contrastVal').innerText = settings.contrast + '%'; }
+                if(settings.brightness !== undefined) { brightnessInput.value = settings.brightness; document.getElementById('brightVal').innerText = settings.brightness + '%'; }
+                if(settings.invert !== undefined) invertInput.checked = settings.invert;
+                if(settings.customW !== undefined) { customW.value = settings.customW; document.getElementById('cwVal').innerText = settings.customW; }
+                if(settings.customH !== undefined) { customH.value = settings.customH; document.getElementById('chVal').innerText = settings.customH; }
+                if(settings.customX !== undefined) { customX.value = settings.customX; document.getElementById('cxVal').innerText = settings.customX; }
+                if(settings.customY !== undefined) { customY.value = settings.customY; document.getElementById('cyVal').innerText = settings.customY; }
+                
+                updateCustomUI();
+                updateThickLabel();
+            }
+        };
+
+        loadSettings();
+
+        // Live update triggers
+        [ditherModeInput, scaleModeInput, fpsInput, thicknessInput, thickNumInput, thresholdInput, contrastInput, brightnessInput, invertInput, customW, customH, customX, customY].forEach(el => {
+            el.addEventListener('input', () => {
+                saveSettings();
+                if(video.paused && !isConverting) drawFrame();
+            });
+        });
+
+        const setupReset = (btnId, inputEls, defaultVal, labelId, suffix = '', customFunc = null) => {
+            document.getElementById(btnId).addEventListener('click', () => {
+                if (Array.isArray(inputEls)) {
+                    inputEls.forEach(el => el.value = defaultVal);
+                } else {
+                    inputEls.value = defaultVal;
+                }
+                if (labelId) document.getElementById(labelId).innerText = defaultVal + suffix;
+                if (customFunc) customFunc();
+                saveSettings(); 
+                if (video.paused && !isConverting) drawFrame();
+            });
+        };
+        setupReset('resetFps', fpsInput, 10, 'fpsVal');
+        setupReset('resetThick', [thicknessInput, thickNumInput], 0, null, '', updateThickLabel);
+        setupReset('resetThresh', thresholdInput, 128, 'threshVal');
+        setupReset('resetContrast', contrastInput, 100, 'contrastVal', '%');
+        setupReset('resetBrightness', brightnessInput, 100, 'brightVal', '%');
+        setupReset('resetX', customX, 0, 'cxVal');
+        setupReset('resetY', customY, 0, 'cyVal');
+
+        scaleModeInput.addEventListener('change', () => {
+            updateCustomUI();
+            if (video.paused && !isConverting) drawFrame();
+        });
+
+        rotateBtn.addEventListener('click', () => {
+            rotationAngle = (rotationAngle + 90) % 360;
+            if (video.paused && !isConverting) drawFrame();
+        });
+
+        upload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if(file) {
+                video.src = URL.createObjectURL(file);
+                convertBtn.disabled = false;
+                rotationAngle = 0; 
+                status.innerText = "Video loaded. Adjust the settings, then click Extract.";
+            }
+        });
+
+        function renderLoop() {
+            if (!video.paused && !video.ended && !isConverting) drawFrame();
+            animationFrameId = requestAnimationFrame(renderLoop);
+        }
+
+        video.addEventListener('play', () => { if (!animationFrameId) renderLoop(); });
+        video.addEventListener('pause', () => {
+            if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
+            if (!isConverting) drawFrame(); 
+        });
+        video.addEventListener('timeupdate', () => { if (video.paused && !isConverting) drawFrame(); });
+
+        // Main rendering function
+        function drawFrame() {
+            if (video.videoWidth === 0 || video.videoHeight === 0) return;
+
+            let vW = video.videoWidth;
+            let vH = video.videoHeight;
+            let isRotated = (rotationAngle % 180 !== 0);
+            let effW = isRotated ? vH : vW;
+            let effH = isRotated ? vW : vH;
+
+            // 1. Pre-process Offscreen Canvas
+            if (offscreen.width !== effW || offscreen.height !== effH) {
+                offscreen.width = effW;
+                offscreen.height = effH;
+            }
+            
+            const bright = brightnessInput.value;
+            const cont = contrastInput.value;
+            const inv = invertInput.checked ? 'invert(100%)' : 'invert(0%)';
+            
+            offCtx.filter = `brightness(${bright}%) contrast(${cont}%) ${inv}`;
+            offCtx.save();
+            offCtx.translate(effW / 2, effH / 2);
+            offCtx.rotate(rotationAngle * Math.PI / 180);
+            let drawOffW = isRotated ? effH : effW;
+            let drawOffH = isRotated ? effW : effH;
+            offCtx.drawImage(video, -drawOffW / 2, -drawOffH / 2, drawOffW, drawOffH);
+            offCtx.restore();
+            offCtx.filter = 'none';
+
+            // 2. Clear Main Canvas
+            ctx.filter = 'none';
+            ctx.fillStyle = "black";
+            ctx.fillRect(0, 0, 128, 64);
+
+            let targetX = 0, targetY = 0, targetW = 128, targetH = 64;
+
+            if (scaleModeInput.value === 'stretch') {
+                targetX = 0; targetY = 0; targetW = 128; targetH = 64;
+            } else if (scaleModeInput.value === 'fit') {
+                const scale = Math.min(128 / effW, 64 / effH);
+                targetW = effW * scale;
+                targetH = effH * scale;
+                targetX = (128 - targetW) / 2;
+                targetY = (64 - targetH) / 2;
+            } else if (scaleModeInput.value === 'cover') {
+                // Maximum scale for cover mode without stretching
+                const scale = Math.max(128 / effW, 64 / effH);
+                targetW = effW * scale;
+                targetH = effH * scale;
+                targetX = ((128 - targetW) / 2) + parseInt(customX.value);
+                targetY = ((64 - targetH) / 2) + parseInt(customY.value);
+            } else if (scaleModeInput.value === 'custom') {
+                targetW = parseInt(customW.value);
+                targetH = parseInt(customH.value);
+                targetX = parseInt(customX.value);
+                targetY = parseInt(customY.value);
+            }
+
+            // 3. Sub-pixel Thickness Shifting
+            const t = parseFloat(thicknessInput.value);
+            if (t < 0) ctx.globalCompositeOperation = 'darken';
+            else if (t > 0) ctx.globalCompositeOperation = 'lighten';
+            else ctx.globalCompositeOperation = 'source-over';
+
+            ctx.drawImage(offscreen, targetX, targetY, targetW, targetH);
+
+            if (t !== 0) {
+                const offset = Math.abs(t); 
+                // Draw in 8 directions using fractional pixel offsets
+                ctx.drawImage(offscreen, targetX - offset, targetY, targetW, targetH);
+                ctx.drawImage(offscreen, targetX + offset, targetY, targetW, targetH);
+                ctx.drawImage(offscreen, targetX, targetY - offset, targetW, targetH);
+                ctx.drawImage(offscreen, targetX, targetY + offset, targetW, targetH);
+                ctx.drawImage(offscreen, targetX - offset*0.7, targetY - offset*0.7, targetW, targetH);
+                ctx.drawImage(offscreen, targetX + offset*0.7, targetY - offset*0.7, targetW, targetH);
+                ctx.drawImage(offscreen, targetX - offset*0.7, targetY + offset*0.7, targetW, targetH);
+                ctx.drawImage(offscreen, targetX + offset*0.7, targetY + offset*0.7, targetW, targetH);
+            }
+            ctx.globalCompositeOperation = 'source-over';
+
+            // 4. KONVERSI LUMINANCE NTSC
+            const ditherMode = ditherModeInput.value;
+            const thresholdValue = parseInt(thresholdInput.value);
+            const bias = thresholdValue - 128;
+            const imageData = ctx.getImageData(0, 0, 128, 64);
+            const data = imageData.data;
+            
+            let gray = new Int16Array(128 * 64);
+            for (let i = 0; i < 128 * 64; i++) {
+                let luminance = (data[i*4] * 0.299) + (data[i*4+1] * 0.587) + (data[i*4+2] * 0.114);
+                gray[i] = Math.max(0, Math.min(255, luminance - bias));
+            }
+
+            // 5. PENERAPAN DITHERING & THRESHOLD
+            if (ditherMode === 'threshold') {
+                for (let i = 0; i < 128 * 64; i++) {
+                    let color = gray[i] >= 128 ? 255 : 0;
+                    data[i*4] = data[i*4+1] = data[i*4+2] = color;
+                }
+            } 
+            else if (ditherMode === 'bayer') {
+                for (let y = 0; y < 64; y++) {
+                    for (let x = 0; x < 128; x++) {
+                        let idx = y * 128 + x;
+                        let bayerValue = (bayer8x8[y % 8][x % 8] / 64.0) * 255;
+                        data[idx*4] = data[idx*4+1] = data[idx*4+2] = gray[idx] >= bayerValue ? 255 : 0;
+                    }
+                }
+            } 
+            else if (ditherMode === 'floyd' || ditherMode === 'atkinson') {
+                for (let y = 0; y < 64; y++) {
+                    for (let x = 0; x < 128; x++) {
+                        let idx = y * 128 + x;
+                        let oldPixel = gray[idx];
+                        let newPixel = oldPixel >= 128 ? 255 : 0;
+                        
+                        data[idx*4] = data[idx*4+1] = data[idx*4+2] = newPixel;
+                        let err = oldPixel - newPixel;
+                        
+                        if (ditherMode === 'floyd') {
+                            if (x < 127) gray[idx + 1] += (err * 7) >> 4;
+                            if (x > 0 && y < 63) gray[idx + 127] += (err * 3) >> 4;
+                            if (y < 63) gray[idx + 128] += (err * 5) >> 4;
+                            if (x < 127 && y < 63) gray[idx + 129] += (err * 1) >> 4;
+                        } else {
+                            err = err >> 3; // Atkinson
+                            if (x + 1 < 128) gray[idx + 1] += err;
+                            if (x + 2 < 128) gray[idx + 2] += err;
+                            if (y + 1 < 64) {
+                                if (x - 1 >= 0) gray[idx + 127] += err;
+                                gray[idx + 128] += err;
+                                if (x + 1 < 128) gray[idx + 129] += err;
+                            }
+                            if (y + 2 < 64) gray[idx + 256] += err;
+                        }
+                    }
+                }
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        // C++ array extraction
+        convertBtn.addEventListener('click', async () => {
+            if(isConverting) return;
+            isConverting = true;
+            convertBtn.disabled = true;
+            outputArray.value = "Processing... This may take a moment.";
+            frameCountSpan.innerText = "0";
+            
+            video.pause();
+            status.innerText = "Extracting frames...";
+
+            let framesData = [];
+            const fps = parseInt(fpsInput.value);
+            const duration = video.duration;
+            const totalFrames = Math.floor(duration * fps);
+            const interval = 1 / fps;
+
+            for (let i = 0; i < totalFrames; i++) {
+                video.currentTime = i * interval;
+                await new Promise(resolve => { video.onseeked = resolve; });
+                drawFrame();
+
+                const imageData = ctx.getImageData(0, 0, 128, 64);
+                const data = imageData.data;
+                let byteArray = [];
+
+                for (let y = 0; y < 64; y++) {
+                    for (let x_byte = 0; x_byte < 16; x_byte++) {
+                        let byte = 0;
+                        for (let bit = 0; bit < 8; bit++) {
+                            let x = (x_byte * 8) + bit;
+                            let pos = (y * 128 + x) * 4;
+                            if (data[pos] === 255) { byte |= (1 << (7 - bit)); }
+                        }
+                        byteArray.push("0x" + byte.toString(16).padStart(2, '0'));
+                    }
+                }
+                framesData.push(`  {\n    ${byteArray.join(", ")}\n  }`);
+                frameCountSpan.innerText = framesData.length;
+            }
+
+            const finalCode = 
+`#include <Arduino.h>
+
+const int TOTAL_FRAMES = ${framesData.length};
+const int FRAME_DELAY = ${Math.floor(1000 / fps)}; // Frame delay in milliseconds
+
+const unsigned char video_frames[][1024] PROGMEM = {
+${framesData.join(",\n")}
+};`;
+            
+            outputArray.value = finalCode;
+            status.innerText = " Done! You can now copy the code below.";
+            isConverting = false;
+            convertBtn.disabled = false;
+        });
+
+        // Universal copy helper
+        const setupCopy = (btnId, outputEl) => {
+            document.getElementById(btnId).addEventListener('click', () => {
+                if(outputEl.value.trim() === "") return;
+                outputEl.select();
+                document.execCommand('copy');
+                const btn = document.getElementById(btnId);
+                const originalText = btn.innerText;
+                btn.innerText = "Copied successfully.!";
+                setTimeout(() => btn.innerText = originalText, 2000);
+            });
+        };
+        
+        setupCopy('copyArrayBtn', outputArray);
+        setupCopy('copyMainBtn', outputMain);
+    </script>
+</body>
+</html>
